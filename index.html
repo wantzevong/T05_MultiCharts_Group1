@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>MultiCharts Dashboard</title>
+	<style>
+		:root {
+			color-scheme: light;
+			--ink: #172b2a;
+			--muted: #647775;
+			--line: #dce7e3;
+			--surface: #ffffff;
+			--canvas: #f2f7f4;
+			--accent: #16836f;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			min-height: 100vh;
+			margin: 0;
+			padding: clamp(24px, 5vw, 64px);
+			color: var(--ink);
+			background:
+				radial-gradient(ellipse at 8% 0%, rgba(110, 190, 157, 0.16), transparent 34rem),
+				var(--canvas);
+			font-family: "Segoe UI", sans-serif;
+		}
+
+		main {
+			width: min(1280px, 100%);
+			margin: 0 auto;
+		}
+
+		.page-heading {
+			display: flex;
+			align-items: end;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 28px;
+		}
+
+		.eyebrow {
+			margin: 0 0 8px;
+			color: var(--accent);
+			font-size: 0.75rem;
+			font-weight: 700;
+			letter-spacing: 0.12em;
+			text-transform: uppercase;
+		}
+
+		h1 {
+			margin: 0;
+			font-family: Georgia, "Times New Roman", serif;
+			font-size: clamp(2rem, 4vw, 3rem);
+			font-weight: 500;
+		}
+
+		.subtitle {
+			margin: 8px 0 0;
+			color: var(--muted);
+			font-size: 0.95rem;
+		}
+
+		.chart-grid {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 20px;
+		}
+
+		.chart-panel {
+			min-width: 0;
+			overflow: hidden;
+			border: 1px solid var(--line);
+			border-radius: 8px;
+			background: var(--surface);
+			box-shadow: 0 8px 24px rgba(28, 63, 53, 0.055);
+		}
+
+		.chart-heading {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			min-height: 62px;
+			padding: 16px 20px;
+			border-bottom: 1px solid #edf2ef;
+		}
+
+		.chart-number {
+			display: grid;
+			width: 28px;
+			height: 28px;
+			flex: 0 0 28px;
+			place-items: center;
+			border-radius: 50%;
+			color: var(--accent);
+			background: #e6f3ee;
+			font-size: 0.75rem;
+			font-weight: 700;
+		}
+
+		h2 {
+			margin: 0;
+			font-size: 0.95rem;
+			font-weight: 650;
+		}
+
+		.chart-area {
+			min-height: 300px;
+			padding: 16px;
+		}
+
+		.chart-area svg {
+			display: block;
+			width: 100%;
+			height: auto;
+			overflow: visible;
+		}
+
+		.chart-area .domain,
+		.chart-area .tick line {
+			stroke: #dce7e3;
+		}
+
+		.chart-area .tick text,
+		.axis-label {
+			fill: var(--muted);
+			font-family: "Segoe UI", sans-serif;
+			font-size: 11px;
+		}
+
+		.load-status {
+			margin: 14px 0 0;
+			color: var(--muted);
+			font-size: 0.85rem;
+		}
+
+		.load-status[data-state="error"] {
+			color: #a53d32;
+		}
+
+		@media (max-width: 700px) {
+			body {
+				padding: 28px 18px;
+			}
+
+			.page-heading {
+				margin-bottom: 22px;
+			}
+
+			.chart-grid {
+				grid-template-columns: 1fr;
+				gap: 16px;
+			}
+
+			.chart-area {
+				min-height: 260px;
+			}
+		}
+	</style>
+</head>
+<body>
+	<main>
+		<header class="page-heading">
+			<div>
+				<p class="eyebrow">Data overview</p>
+				<h1>MultiCharts</h1>
+				<p class="subtitle">Four views, one clear picture.</p>
+				<p class="load-status" id="load-status" role="status">Loading datasets...</p>
+			</div>
+		</header>
+
+		<section class="chart-grid" aria-label="Four chart panels">
+			<article class="chart-panel">
+				<div class="chart-heading">
+					<span class="chart-number" aria-hidden="true">01</span>
+					<h2>Australian spot prices</h2>
+				</div>
+				<div class="chart-area" id="chart-1"></div>
+			</article>
+
+			<article class="chart-panel">
+				<div class="chart-heading">
+					<span class="chart-number" aria-hidden="true">02</span>
+					<h2>55-inch TV energy use</h2>
+				</div>
+				<div class="chart-area" id="chart-2"></div>
+			</article>
+
+			<article class="chart-panel">
+				<div class="chart-heading">
+					<span class="chart-number" aria-hidden="true">03</span>
+					<h2>TV energy by screen type</h2>
+				</div>
+				<div class="chart-area" id="chart-3"></div>
+			</article>
+
+			<article class="chart-panel">
+				<div class="chart-heading">
+					<span class="chart-number" aria-hidden="true">04</span>
+					<h2>Screen size and energy use</h2>
+				</div>
+				<div class="chart-area" id="chart-4"></div>
+			</article>
+		</section>
+	</main>
+	<script type="module">
+		import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
+		const status = d3.select("#load-status");
+		const colors = d3.scaleOrdinal(d3.schemeTableau10);
+		const width = 560;
+		const chartHeight = 320;
+
+		function createSvg(target, height = chartHeight, label) {
+			return d3.select(target)
+				.html("")
+				.append("svg")
+				.attr("viewBox", `0 0 ${width} ${height}`)
+				.attr("role", "img")
+				.attr("aria-label", label);
+		}
+
+		function drawSpotPrices(rows) {
+			const yearKey = "Year";
+			const series = Object.keys(rows[0]).filter((key) => key !== yearKey);
+			const values = rows.flatMap((row) => series.map((key) => row[key])).filter(Number.isFinite);
+			const margin = { top: 18, right: 18, bottom: 78, left: 58 };
+			const plotBottom = chartHeight - margin.bottom;
+			const x = d3.scaleLinear()
+				.domain(d3.extent(rows, (row) => row[yearKey]))
+				.range([margin.left, width - margin.right]);
+			const y = d3.scaleLinear()
+				.domain([0, d3.max(values)])
+				.nice()
+				.range([plotBottom, margin.top]);
+			const svg = createSvg("#chart-1", chartHeight, "Australian regional spot prices by year");
+
+			svg.append("g")
+				.attr("transform", `translate(0,${plotBottom})`)
+				.call(d3.axisBottom(x).ticks(6).tickFormat(d3.format("d")));
+			svg.append("g")
+				.attr("transform", `translate(${margin.left},0)`)
+				.call(d3.axisLeft(y).ticks(5));
+
+			const line = d3.line()
+				.defined((point) => Number.isFinite(point.value))
+				.x((point) => x(point.year))
+				.y((point) => y(point.value));
+
+			series.forEach((key, index) => {
+				const points = rows.map((row) => ({ year: row[yearKey], value: row[key] }));
+				svg.append("path")
+					.datum(points)
+					.attr("fill", "none")
+					.attr("stroke", colors(key))
+					.attr("stroke-width", key.startsWith("Average") ? 2.8 : 1.8)
+					.attr("opacity", key.startsWith("Average") ? 1 : 0.78)
+					.attr("d", line);
+
+				const column = index % 4;
+				const row = Math.floor(index / 4);
+				const label = key.replace(" ($ per megawatt hour)", "");
+				const legend = svg.append("g")
+					.attr("transform", `translate(${margin.left + column * 126},${plotBottom + 34 + row * 20})`);
+				legend.append("line")
+					.attr("x2", 15)
+					.attr("stroke", colors(key))
+					.attr("stroke-width", 2.5);
+				legend.append("text")
+					.attr("x", 20)
+					.attr("y", 4)
+					.attr("class", "axis-label")
+					.text(label);
+			});
+
+			svg.append("text")
+				.attr("class", "axis-label")
+				.attr("x", width / 2)
+				.attr("y", chartHeight - 8)
+				.attr("text-anchor", "middle")
+				.text("Year");
+		}
+
+		function drawEnergyBars(target, rows, label) {
+			const key = "Mean(Labelled energy consumption (kWh/year))";
+			const margin = { top: 20, right: 18, bottom: 54, left: 58 };
+			const x = d3.scaleBand()
+				.domain(rows.map((row) => row.Screen_Tech))
+				.range([margin.left, width - margin.right])
+				.padding(0.34);
+			const y = d3.scaleLinear()
+				.domain([0, d3.max(rows, (row) => row[key]) * 1.15])
+				.nice()
+				.range([chartHeight - margin.bottom, margin.top]);
+			const svg = createSvg(target, chartHeight, label);
+
+			svg.append("g")
+				.attr("transform", `translate(0,${chartHeight - margin.bottom})`)
+				.call(d3.axisBottom(x));
+			svg.append("g")
+				.attr("transform", `translate(${margin.left},0)`)
+				.call(d3.axisLeft(y).ticks(5));
+			svg.selectAll(".bar")
+				.data(rows)
+				.join("rect")
+				.attr("class", "bar")
+				.attr("x", (row) => x(row.Screen_Tech))
+				.attr("y", (row) => y(row[key]))
+				.attr("width", x.bandwidth())
+				.attr("height", (row) => y(0) - y(row[key]))
+				.attr("rx", 3)
+				.attr("fill", (row) => colors(row.Screen_Tech));
+			svg.selectAll(".bar-label")
+				.data(rows)
+				.join("text")
+				.attr("class", "axis-label")
+				.attr("x", (row) => x(row.Screen_Tech) + x.bandwidth() / 2)
+				.attr("y", (row) => y(row[key]) - 7)
+				.attr("text-anchor", "middle")
+				.text((row) => d3.format(".0f")(row[key]));
+			svg.append("text")
+				.attr("class", "axis-label")
+				.attr("transform", "rotate(-90)")
+				.attr("x", -chartHeight / 2)
+				.attr("y", 16)
+				.attr("text-anchor", "middle")
+				.text("Mean energy (kWh/year)");
+		}
+
+		function drawTvScatter(rows) {
+			const margin = { top: 32, right: 18, bottom: 52, left: 62 };
+			const validRows = rows.filter((row) => Number.isFinite(row.screensize) && Number.isFinite(row.energy_consumpt));
+			const x = d3.scaleLinear()
+				.domain(d3.extent(validRows, (row) => row.screensize))
+				.nice()
+				.range([margin.left, width - margin.right]);
+			const y = d3.scaleLinear()
+				.domain([0, d3.max(validRows, (row) => row.energy_consumpt)])
+				.nice()
+				.range([chartHeight - margin.bottom, margin.top]);
+			const svg = createSvg("#chart-4", chartHeight, "TV screen size compared with annual energy use by screen technology");
+
+			svg.append("g")
+				.attr("transform", `translate(0,${chartHeight - margin.bottom})`)
+				.call(d3.axisBottom(x).ticks(7));
+			svg.append("g")
+				.attr("transform", `translate(${margin.left},0)`)
+				.call(d3.axisLeft(y).ticks(5));
+			svg.selectAll(".point")
+				.data(validRows)
+				.join("circle")
+				.attr("class", "point")
+				.attr("cx", (row) => x(row.screensize))
+				.attr("cy", (row) => y(row.energy_consumpt))
+				.attr("r", 3)
+				.attr("fill", (row) => colors(row.screen_tech))
+				.attr("fill-opacity", 0.48)
+				.append("title")
+				.text((row) => `${row.screen_tech}: ${row.screensize} in, ${row.energy_consumpt} kWh/year`);
+
+			const technologies = [...new Set(validRows.map((row) => row.screen_tech))];
+			technologies.forEach((technology, index) => {
+				const legend = svg.append("g")
+					.attr("transform", `translate(${margin.left + index * 112},14)`);
+				legend.append("circle")
+					.attr("r", 4)
+					.attr("fill", colors(technology));
+				legend.append("text")
+					.attr("class", "axis-label")
+					.attr("x", 9)
+					.attr("y", 4)
+					.text(technology);
+			});
+			svg.append("text")
+				.attr("class", "axis-label")
+				.attr("x", width / 2)
+				.attr("y", chartHeight - 8)
+				.attr("text-anchor", "middle")
+				.text("Screen size (inches)");
+			svg.append("text")
+				.attr("class", "axis-label")
+				.attr("transform", "rotate(-90)")
+				.attr("x", -chartHeight / 2)
+				.attr("y", 16)
+				.attr("text-anchor", "middle")
+				.text("Energy (kWh/year)");
+		}
+
+		try {
+			const [spotRows, tv55Rows, tvAllRows, tvRows] = await Promise.all([
+				d3.csv("data/Ex5_ARE_Spot_Prices.csv", d3.autoType),
+				d3.csv("data/Ex5_TV_energy_55inchtv_byScreenType.csv", d3.autoType),
+				d3.csv("data/Ex5_TV_energy_Allsizes_byScreenType.csv", d3.autoType),
+				d3.csv("data/Ex5_TV_energy.csv", d3.autoType)
+			]);
+
+			drawSpotPrices(spotRows);
+			drawEnergyBars("#chart-2", tv55Rows, "Mean annual TV energy use by screen type, 55-inch TVs");
+			drawEnergyBars("#chart-3", tvAllRows, "Mean annual TV energy use by screen type, all sizes");
+			drawTvScatter(tvRows);
+			status.text(`Loaded ${spotRows.length + tv55Rows.length + tvAllRows.length + tvRows.length} rows across 4 datasets.`);
+		} catch (error) {
+			console.error("Unable to load chart datasets:", error);
+			status
+				.attr("data-state", "error")
+				.text("Could not load the CSV files. Open this page through a local web server and check the data/ folder.");
+		}
+	</script>
+</body>
+</html>
